@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>mock Connect viewer</title></head>
+<body>
+<video id="v" autoplay playsinline muted style="width:640px"></video>
+<pre id="log"></pre>
+<script>
+// Same peer handling as Connect's live viewer (CamerasView / useWebRtcStream).
+const logEl = document.getElementById('log');
+const log = (...a) => { logEl.textContent += a.join(' ') + '\n'; };
+const id = 'viewer-' + Math.random().toString(36).slice(2, 10);
+const ws = new WebSocket(`ws://${location.host}/viewer-ws`);
+const strip = c => c.startsWith('a=') ? c.slice(2) : c;
+const addPrefix = c => c.startsWith('a=') ? c : `a=${c}`;
+let pc = null, queued = [], frames = 0, gotStream = false;
+window.result = { id, state: 'init', errors: [] };
+
+function makePc() {
+  pc = new RTCPeerConnection({ iceServers: [] });
+  pc.ontrack = e => {
+    if (e.streams.length > 0) {            // Connect ignores tracks without a stream
+      gotStream = true;
+      const v = document.getElementById('v');
+      v.srcObject = e.streams[0];
+      const count = () => { frames++; v.requestVideoFrameCallback(count); };
+      v.requestVideoFrameCallback(count);
+    }
+  };
+  pc.onicecandidate = e => {
+    const c = e.candidate;
+    if (c && c.candidate) ws.send(JSON.stringify({ type: 'candidate', candidate: addPrefix(c.candidate), mid: c.sdpMid || '0' }));
+  };
+  pc.oniceconnectionstatechange = () => { window.result.state = pc.iceConnectionState; log('ice', pc.iceConnectionState); };
+}
+
+ws.onopen = () => ws.send(JSON.stringify({ type: 'request', id }));
+ws.onmessage = async ev => {
+  const m = JSON.parse(ev.data);
+  try {
+    if (m.type === 'offer') {
+      makePc();
+      window.result.offer = m.sdp;
+      await pc.setRemoteDescription({ type: 'offer', sdp: m.sdp });
+      for (const q of queued) await pc.addIceCandidate({ candidate: strip(q.candidate), sdpMid: q.mid || '0', sdpMLineIndex: 0 });
+      queued = [];
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      window.result.answer = answer.sdp;
+      ws.send(JSON.stringify({ type: 'answer', sdp: answer.sdp }));
+    } else if (m.type === 'candidate') {
+      if (!pc || !pc.remoteDescription) { queued.push(m); return; }
+      await pc.addIceCandidate({ candidate: strip(m.candidate), sdpMid: m.mid || '0', sdpMLineIndex: 0 });
+    }
+  } catch (e) { window.result.errors.push(String(e)); log('error', e); }
+};
+
+window.collect = async () => {
+  const r = window.result;
+  r.gotStream = gotStream;
+  r.framesRendered = frames;
+  if (!pc) return r;
+  const stats = await pc.getStats();
+  stats.forEach(s => {
+    if (s.type === 'inbound-rtp' && s.kind === 'video') {
+      r.framesDecoded = s.framesDecoded; r.width = s.frameWidth; r.height = s.frameHeight;
+      r.fps = s.framesPerSecond; r.bytes = s.bytesReceived; r.codecId = s.codecId;
+      r.keyFramesDecoded = s.keyFramesDecoded;
+    }
+  });
+  stats.forEach(s => { if (s.id === r.codecId) { r.codec = s.mimeType; r.fmtp = s.sdpFmtpLine; } });
+  return r;
+};
+window.stopStream = () => ws.send(JSON.stringify({ type: 'stop' }));
+</script>
+</body>
+</html>
