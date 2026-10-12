@@ -1,0 +1,6 @@
+aiortc==1.15.0
+aioice==0.10.2
+av==17.1.0
+python-socketio[asyncio_client]==5.17.0
+aiohttp==3.14.5
+pillow==12.3.0

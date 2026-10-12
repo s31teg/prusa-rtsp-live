@@ -1,0 +1,32 @@
+# prusa-rtsp-live: any RTSP camera as a live-view camera in Prusa Connect.
+#
+# Settings come from environment variables: in Portainer, add them under the
+# stack's "Environment variables"; with plain Docker, put them in a .env file
+# next to this file (see .env.example).
+#
+# Host networking matters: WebRTC needs the host's real IP and UDP ports,
+# otherwise LAN viewers end up on Prusa's relay (SD on free accounts).
+
+services:
+  prusa-rtsp-live:
+    image: ghcr.io/s31teg/prusa-rtsp-live:latest
+    container_name: prusa-rtsp-live
+    restart: unless-stopped
+    network_mode: host
+    labels:
+      - autoheal=true   # picked up by an autoheal container, if you run one
+    environment:
+      MODE: ${MODE:-webcam}
+      PRUSA_TOKEN: ${PRUSA_TOKEN:?set PRUSA_TOKEN to the camera token from Prusa Connect}
+      CAMERA_URL: ${CAMERA_URL:?set CAMERA_URL to the camera's rtsp:// or rtsps:// address}
+      FINGERPRINT: ${FINGERPRINT:-}
+      CAMERA_NAME: ${CAMERA_NAME:-RTSP Camera}
+      SNAPSHOT_INTERVAL: ${SNAPSHOT_INTERVAL:-10}
+      VIDEO_MAX_WIDTH: ${VIDEO_MAX_WIDTH:-1920}
+      VIDEO_MAX_HEIGHT: ${VIDEO_MAX_HEIGHT:-1080}
+      VIDEO_MAX_FPS: ${VIDEO_MAX_FPS:-25}
+      VIDEO_MAX_BITRATE: ${VIDEO_MAX_BITRATE:-4000000}
+      MAX_VIEWERS: ${MAX_VIEWERS:-2}
+      X264_PRESET: ${X264_PRESET:-veryfast}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TZ: ${TZ:-Europe/London}
